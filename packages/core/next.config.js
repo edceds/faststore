@@ -61,6 +61,19 @@ const nextConfig = {
     scrollRestoration: !storeConfig.experimental.scrollRestoration,
   },
   /*
+   * Keep the OpenTelemetry diagnostics packages as server-side runtime externals
+   * instead of bundling them. They are server-only OTel libraries that rely on
+   * dynamic require() (via require-in-the-middle) and optional instrumentations
+   * that are not always installed (e.g. Koa/Nest/Fastify). Bundling them makes
+   * webpack emit "Module not found" / "Critical dependency" warnings even though
+   * telemetry is gated at runtime by `analytics.otelEnabled`. Externalizing lets
+   * Node require them normally at runtime, matching Next.js guidance for OTel.
+   */
+  serverExternalPackages: [
+    '@faststore/diagnostics',
+    '@vtex/diagnostics-nodejs',
+  ],
+  /*
    * The FastStore Discovery CLI will update this value to match the path where the
    * command is being run, because that is where the node_modules directory is.
    * For discovery-only paths, that is the user directory, and for monorepo, that is the base
@@ -68,6 +81,19 @@ const nextConfig = {
    * */
   outputFileTracingRoot: getRootFolder(),
   webpack: (config, { isServer, dev }) => {
+    // Ignore the benign "Critical dependency: the request of a dependency is an
+    // expression" warning from require-in-the-middle inside the OpenTelemetry
+    // instrumentation core. It is dynamic require() code webpack cannot analyze
+    // statically; the request is resolved at runtime. Pairs with the
+    // serverExternalPackages entry above, which removes the "Module not found"
+    // warnings for the diagnostics packages.
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings || []),
+      { module: /@opentelemetry[\\/]instrumentation/ },
+      { module: /require-in-the-middle/ },
+      { module: /@vtex[\\/]diagnostics-nodejs/ },
+    ]
+
     // https://github.com/vercel/next.js/discussions/11267#discussioncomment-2479112
     // camel-case style names from css modules
     config.module.rules
